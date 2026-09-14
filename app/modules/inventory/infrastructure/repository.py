@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Sequence
 
-from sqlmodel import col, func, or_, select
+from sqlmodel import col, func, or_, select, delete
 
 from app.core.db import SessionDep
 from app.modules.inventory.domain.repositories import (
@@ -455,3 +455,28 @@ class InventoryRepository(InventoryRepositoryInterface):
         return self.session.exec(
             select(TipoInventario).where(col(TipoInventario.nombre) == name)
         ).first()
+        
+    async def get_borrowings_by_item_id(self, item_id: int):
+        return self.session.exec(
+            select(Prestamo).where(Prestamo.inventario_id == item_id)
+        ).all()
+
+
+    async def delete_item(self, item_id: int):
+        item = self.session.get(Inventario, item_id)
+
+        if not item:
+            return None
+
+        self.session.exec(
+            delete(InventarioStock).where(
+                InventarioStock.inventario_id == item_id
+            )
+        )
+
+        self.session.flush()
+
+        self.session.delete(item)
+        self.session.commit()
+
+        return True

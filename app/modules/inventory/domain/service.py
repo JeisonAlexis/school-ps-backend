@@ -542,3 +542,33 @@ class InventoryService:
             failed=len(errors),
             errors=errors,
         )
+    
+    async def delete_item(self, item_id: int):
+        item = await self.repository.get_item_by_id(item_id)
+
+        if not item:
+            return {
+                "error": "NOT_FOUND",
+                "message": "Artículo no encontrado",
+            }
+
+        borrowings = await self.repository.get_borrowings_by_item_id(item_id)
+
+        if borrowings:
+            return {
+                "error": "HAS_HISTORY",
+                "message": "No se puede eliminar el artículo porque tiene préstamos registrados.",
+            }
+
+        deleted = await self.repository.delete_item(item_id)
+
+        if not deleted:
+            return {
+                "error": "BAD_REQUEST",
+                "message": "No fue posible eliminar el artículo.",
+            }
+
+        return {
+            "success": True,
+            "message": "Artículo eliminado exitosamente",
+        }

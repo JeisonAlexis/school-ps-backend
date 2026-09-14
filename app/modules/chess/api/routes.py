@@ -15,6 +15,7 @@ from app.modules.chess.schemas.request import (
     ResolveChessNoveltyRequest,
     ResolveBorrowNoveltyRequest,
     CreateChessItemRequest,
+    UpdateChessItemRequest,
 )
 
 from app.modules.chess.application.create_borrowing import CreateChessBorrowing
@@ -264,4 +265,108 @@ async def create_chess_item(session: SessionDep, item_data: CreateChessItemReque
         },
         message="Artículo de ajedrez creado exitosamente",
         status_code=status.HTTP_201_CREATED,
+    ).to_dict()
+    
+    
+@router.patch("/items/{item_id}", status_code=status.HTTP_200_OK)
+async def update_chess_item(
+    session: SessionDep,
+    item_id: int,
+    item_data: UpdateChessItemRequest,
+):
+    from app.modules.chess.infrastructure.repository import ChessRepository
+    from app.modules.inventory.infrastructure.repository import InventoryRepository
+    from app.modules.chess.domain.service import ChessService
+
+    chess_repo = ChessRepository(session=session)
+    inventory_repo = InventoryRepository(session=session)
+
+    service = ChessService(
+        chess_repo=chess_repo,
+        inventory_repo=inventory_repo,
+    )
+
+    result = await service.update_chess_item(
+        item_id=item_id,
+        item_data=item_data,
+    )
+
+    if isinstance(result, dict) and result.get("error"):
+        error = result["error"]
+
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if error == "NOT_FOUND"
+            else status.HTTP_400_BAD_REQUEST
+        )
+
+        return Response(
+            data=None,
+            message="Error al editar el artículo de ajedrez",
+            status_code=status_code,
+            details={"error": result.get("message", "")},
+        ).to_dict()
+
+    piezas_totales = 32
+
+    if result.observacion and result.observacion.startswith("[PIEZAS:"):
+        try:
+            parts = result.observacion.split("]", 1)
+            num_part = parts[0].replace("[PIEZAS:", "").strip()
+            piezas_totales = int(num_part)
+        except (ValueError, IndexError):
+            pass
+
+    return Response(
+        data={
+            "id": result.id,
+            "nombre": result.nombre,
+            "cantidad_total": result.cantidad_total,
+            "observacion": result.observacion,
+            "piezas_totales": piezas_totales,
+        },
+        message="Artículo de ajedrez actualizado exitosamente",
+        status_code=status.HTTP_200_OK,
+    ).to_dict()
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_200_OK)
+async def delete_chess_item(
+    session: SessionDep,
+    item_id: int,
+):
+    from app.modules.chess.infrastructure.repository import ChessRepository
+    from app.modules.inventory.infrastructure.repository import InventoryRepository
+    from app.modules.chess.domain.service import ChessService
+
+    chess_repo = ChessRepository(session=session)
+    inventory_repo = InventoryRepository(session=session)
+
+    service = ChessService(
+        chess_repo=chess_repo,
+        inventory_repo=inventory_repo,
+    )
+
+    result = await service.delete_chess_item(item_id)
+
+    if isinstance(result, dict) and result.get("error"):
+        error = result["error"]
+
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if error == "NOT_FOUND"
+            else status.HTTP_400_BAD_REQUEST
+        )
+
+        return Response(
+            data=None,
+            message="No se pudo eliminar el artículo de ajedrez",
+            status_code=status_code,
+            details={"error": result.get("message", "")},
+        ).to_dict()
+
+    return Response(
+        data=None,
+        message="Artículo de ajedrez eliminado exitosamente",
+        status_code=status.HTTP_200_OK,
     ).to_dict()
