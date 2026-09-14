@@ -5,12 +5,14 @@ from app.modules.chess.schemas.request import (
     ResolveChessNoveltyRequest,
     ReturnChessBorrowRequest,
     CreateChessItemRequest,
+    UpdateChessItemRequest,
 )
 from app.modules.inventory.infrastructure.repository import InventoryRepository
 from app.modules.inventory.schemas.request import (
     CreateBorrowRequest,
     CreateItemRequest,
     ReturnBorrowRequest,
+    UpdateSingleItemRequest,
 )
 
 
@@ -334,3 +336,103 @@ class ChessService:
                 "message": "El estudiante tiene novedades abiertas de Ajedrez.",
             }
         return {"paz_y_salvo": True, "message": "Estudiante a paz y salvo en Ajedrez."}
+
+    async def update_chess_item(
+        self,
+        item_id: int,
+        item_data: UpdateChessItemRequest,
+    ):
+        item = await self.inventory_repo.get_item_by_id(item_id)
+
+        if not item:
+            return {
+                "error": "NOT_FOUND",
+                "message": "Artículo de ajedrez no encontrado.",
+            }
+
+        tipo_ajedrez = await self.inventory_repo.get_type_by_name("ajedrez")
+
+        if not tipo_ajedrez:
+            return {
+                "error": "BAD_REQUEST",
+            "message": "No existe una categoría llamada 'ajedrez'.",
+            }
+
+        if item.tipo_inventario_id != tipo_ajedrez.id:
+            return {
+                "error": "BAD_REQUEST",
+                "message": "El artículo no pertenece a la categoría de ajedrez.",
+            }
+
+        # Mantener la información de piezas dentro de observacion
+        obs = f"[PIEZAS:{item_data.piezas_totales}]"
+
+        if item_data.observacion:
+            obs += f" {item_data.observacion}"
+
+        update_data = UpdateSingleItemRequest(
+            nombre=item_data.nombre,
+            cantidad_total=item_data.cantidad_total,
+            observacion=obs,
+        )
+
+        updated = await self.inventory_repo.edit_item(
+            id=item_id,
+            item_data=update_data,
+        )
+
+        if not updated:
+            return {
+                "error": "BAD_REQUEST",
+                "message": "No fue posible actualizar el artículo.",
+            }
+
+        return updated
+
+
+    async def delete_chess_item(self, item_id: int):
+        item = await self.inventory_repo.get_item_by_id(item_id)
+
+        if not item:
+            return {
+                "error": "NOT_FOUND",
+                "message": "Artículo de ajedrez no encontrado.",
+            }
+
+        tipo_ajedrez = await self.inventory_repo.get_type_by_name("ajedrez")
+
+        if not tipo_ajedrez:
+            return {
+                "error": "BAD_REQUEST",
+                "message": "No existe una categoría llamada 'ajedrez'.",
+            }
+
+        if item.tipo_inventario_id != tipo_ajedrez.id:
+            return {
+                "error": "BAD_REQUEST",
+                "message": "El artículo no pertenece a la categoría de ajedrez.",
+            }
+
+        borrowings = await self.inventory_repo.get_borrowings_by_item_id(item_id)
+
+        if borrowings:
+            return {
+                "error": "HAS_HISTORY",
+                "message": (
+                    "No se puede eliminar este artículo porque "
+                    "tiene préstamos registrados."
+                ),
+            }
+
+        deleted = await self.inventory_repo.delete_item(item_id)
+
+        if not deleted:
+            return {
+                "error": "BAD_REQUEST",
+                "message": "No fue posible eliminar el artículo.",
+            }
+
+        return {
+            "success": True,
+            "message": "Artículo de ajedrez eliminado exitosamente.",
+        }
