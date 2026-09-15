@@ -30,7 +30,9 @@ class EnrollmentAdapter(EnrollmentDataService):
 
     def _matricula_type_ids(self) -> set[int]:
         matricula_type = self.session.exec(
-            select(TipoComplementario).where(TipoComplementario.nombre == "Matricula")
+            select(TipoComplementario).where(
+                TipoComplementario.nombre == "Matricula"
+            )
         ).first()
 
         if not matricula_type or matricula_type.id is None:
@@ -40,24 +42,60 @@ class EnrollmentAdapter(EnrollmentDataService):
             select(col(TipoComplementario.id)).where(
                 or_(
                     TipoComplementario.id == matricula_type.id,
-                    TipoComplementario.sub_tipo_complementario == matricula_type.id,
+                    TipoComplementario.sub_tipo_complementario
+                    == matricula_type.id,
                 )
             )
         ).all()
+
         return {i for i in ids if i is not None}
 
     async def get_all_programs(self) -> list[ProgramInfo]:
-        excluded_ids = self._matricula_type_ids()
+        # Buscar el tipo "Escuelas de Formacion"
+        escuelas_formacion_tipo = self.session.exec(
+            select(TipoComplementario).where(
+                TipoComplementario.nombre == "Escuelas de Formacion"
+            )
+        ).first()
 
-        statement = select(Complementario).where(
-            Complementario.estado_complemento == "Activo"
+        if not escuelas_formacion_tipo or escuelas_formacion_tipo.id is None:
+            return []
+
+        escuelas_id = escuelas_formacion_tipo.id
+
+        # Obtener el tipo "Pupitre" para excluirlo
+        pupitre_tipo = self.session.exec(
+            select(TipoComplementario).where(
+                TipoComplementario.nombre == "Pupitre"
+            )
+        ).first()
+
+        pupitre_id = pupitre_tipo.id if pupitre_tipo else None
+
+    
+        statement = (
+            select(Complementario)
+            .join(
+                TipoComplementario,
+                col(Complementario.tipo_complementario_id)
+                == col(TipoComplementario.id),
+            )
+            .where(
+                Complementario.estado_complemento == "Activo",
+                or_(
+                    TipoComplementario.id == escuelas_id,
+                    TipoComplementario.sub_tipo_complementario == escuelas_id,
+                ),
+            )
         )
-        if excluded_ids:
+
+        if pupitre_id is not None:
             statement = statement.where(
-                col(Complementario.tipo_complementario_id).not_in(excluded_ids)
+                TipoComplementario.id != pupitre_id
             )
 
         rows = self.session.exec(statement).all()
+
         return [
             ProgramInfo(
                 id=c.id if c.id is not None else 0,
@@ -71,6 +109,7 @@ class EnrollmentAdapter(EnrollmentDataService):
 
     async def search_students(self, query: str) -> list[StudentInfo]:
         term = f"%{query}%"
+
         rows = self.session.exec(
             select(Estudiante)
             .where(
@@ -81,6 +120,7 @@ class EnrollmentAdapter(EnrollmentDataService):
             )
             .limit(20)
         ).all()
+
         return [
             StudentInfo(
                 id=est.id if est.id is not None else 0,
@@ -94,12 +134,18 @@ class EnrollmentAdapter(EnrollmentDataService):
     async def get_student_by_id(self, student_id: int) -> StudentInfo | None:
         result = self.session.exec(
             select(Estudiante, Grado)
-            .join(Grado, col(Estudiante.grado_id) == col(Grado.id))
+            .join(
+                Grado,
+                col(Estudiante.grado_id) == col(Grado.id),
+            )
             .where(Estudiante.id == student_id)
         ).first()
+
         if not result:
             return None
+
         est, grado = result
+
         return StudentInfo(
             id=est.id if est.id is not None else 0,
             nombre=est.nombre,
@@ -109,7 +155,10 @@ class EnrollmentAdapter(EnrollmentDataService):
         )
 
     async def get_periods(self) -> list[PeriodInfo]:
-        rows = self.session.exec(select(Periodo).where(col(Periodo.estado))).all()
+        rows = self.session.exec(
+            select(Periodo).where(col(Periodo.estado))
+        ).all()
+
         return [
             PeriodInfo(
                 id=p.id if p.id is not None else 0,
@@ -119,11 +168,20 @@ class EnrollmentAdapter(EnrollmentDataService):
             for p in rows
         ]
 
-    def _tipo_to_info(self, tipo: TipoComplementario) -> TipoComplementarioInfo:
+    def _tipo_to_info(
+        self,
+        tipo: TipoComplementario,
+    ) -> TipoComplementarioInfo:
         padre_nombre = None
+
         if tipo.sub_tipo_complementario is not None:
-            padre = self.session.get(TipoComplementario, tipo.sub_tipo_complementario)
+            padre = self.session.get(
+                TipoComplementario,
+                tipo.sub_tipo_complementario,
+            )
+
             padre_nombre = padre.nombre if padre else None
+
         return TipoComplementarioInfo(
             id=tipo.id if tipo.id is not None else 0,
             nombre=tipo.nombre,
@@ -132,29 +190,47 @@ class EnrollmentAdapter(EnrollmentDataService):
             padre_nombre=padre_nombre,
         )
 
-    async def list_tipos_complementario(self) -> list[TipoComplementarioInfo]:
-        rows = self.session.exec(select(TipoComplementario)).all()
-        return [self._tipo_to_info(t) for t in rows]
+    async def list_tipos_complementario(
+        self,
+    ) -> list[TipoComplementarioInfo]:
+        rows = self.session.exec(
+            select(TipoComplementario)
+        ).all()
+
+        return [
+            self._tipo_to_info(t)
+            for t in rows
+        ]
 
     async def get_tipo_complementario(
-        self, tipo_id: int
+        self,
+        tipo_id: int,
     ) -> TipoComplementarioInfo | None:
-        tipo = self.session.get(TipoComplementario, tipo_id)
+        tipo = self.session.get(
+            TipoComplementario,
+            tipo_id,
+        )
+
         if not tipo:
             return None
+
         return self._tipo_to_info(tipo)
 
     async def create_tipo_complementario(
-        self, nombre: str, sub_tipo_complementario: int | None
+        self,
+        nombre: str,
+        sub_tipo_complementario: int | None,
     ) -> TipoComplementarioInfo:
         tipo = TipoComplementario(
             nombre=nombre,
             estado=True,
             sub_tipo_complementario=sub_tipo_complementario,
         )
+
         self.session.add(tipo)
         self.session.commit()
         self.session.refresh(tipo)
+
         return self._tipo_to_info(tipo)
 
     async def update_tipo_complementario(
@@ -164,48 +240,82 @@ class EnrollmentAdapter(EnrollmentDataService):
         estado: bool | None,
         sub_tipo_complementario: int | None,
     ) -> TipoComplementarioInfo:
-        tipo = self.session.get(TipoComplementario, tipo_id)
+        tipo = self.session.get(
+            TipoComplementario,
+            tipo_id,
+        )
+
         if not tipo:
-            raise ValueError("Tipo de complementario no encontrado.")
+            raise ValueError(
+                "Tipo de complementario no encontrado."
+            )
 
         if nombre is not None:
             tipo.nombre = nombre
+
         if estado is not None:
             tipo.estado = estado
+
         if sub_tipo_complementario is not None:
             tipo.sub_tipo_complementario = sub_tipo_complementario
 
         self.session.add(tipo)
         self.session.commit()
         self.session.refresh(tipo)
+
         return self._tipo_to_info(tipo)
 
-    async def delete_tipo_complementario(self, tipo_id: int) -> None:
-        tipo = self.session.get(TipoComplementario, tipo_id)
+    async def delete_tipo_complementario(
+        self,
+        tipo_id: int,
+    ) -> None:
+        tipo = self.session.get(
+            TipoComplementario,
+            tipo_id,
+        )
+
         if not tipo:
-            raise ValueError("Tipo de complementario no encontrado.")
+            raise ValueError(
+                "Tipo de complementario no encontrado."
+            )
+
         tipo.estado = False
+
         self.session.add(tipo)
         self.session.commit()
 
-    async def tipo_complementario_has_children_or_concepts(self, tipo_id: int) -> bool:
+    async def tipo_complementario_has_children_or_concepts(
+        self,
+        tipo_id: int,
+    ) -> bool:
         hijo = self.session.exec(
             select(TipoComplementario).where(
-                TipoComplementario.sub_tipo_complementario == tipo_id
+                TipoComplementario.sub_tipo_complementario
+                == tipo_id
             )
         ).first()
+
         if hijo:
             return True
 
         concepto = self.session.exec(
             select(Complementario).where(
-                Complementario.tipo_complementario_id == tipo_id
+                Complementario.tipo_complementario_id
+                == tipo_id
             )
         ).first()
+
         return concepto is not None
 
-    def _complementario_to_info(self, comp: Complementario) -> ComplementarioInfo:
-        tipo = self.session.get(TipoComplementario, comp.tipo_complementario_id)
+    def _complementario_to_info(
+        self,
+        comp: Complementario,
+    ) -> ComplementarioInfo:
+        tipo = self.session.get(
+            TipoComplementario,
+            comp.tipo_complementario_id,
+        )
+
         return ComplementarioInfo(
             id=comp.id if comp.id is not None else 0,
             nombre=comp.nombre,
@@ -216,16 +326,30 @@ class EnrollmentAdapter(EnrollmentDataService):
             tipo_complementario_nombre=tipo.nombre if tipo else "",
         )
 
-    async def list_complementarios(self) -> list[ComplementarioInfo]:
-        rows = self.session.exec(select(Complementario)).all()
-        return [self._complementario_to_info(c) for c in rows]
+    async def list_complementarios(
+        self,
+    ) -> list[ComplementarioInfo]:
+        rows = self.session.exec(
+            select(Complementario)
+        ).all()
+
+        return [
+            self._complementario_to_info(c)
+            for c in rows
+        ]
 
     async def get_complementario(
-        self, complementario_id: int
+        self,
+        complementario_id: int,
     ) -> ComplementarioInfo | None:
-        comp = self.session.get(Complementario, complementario_id)
+        comp = self.session.get(
+            Complementario,
+            complementario_id,
+        )
+
         if not comp:
             return None
+
         return self._complementario_to_info(comp)
 
     async def create_complementario(
@@ -243,9 +367,11 @@ class EnrollmentAdapter(EnrollmentDataService):
             estado_complemento=estado_complemento,
             tipo_complementario_id=tipo_complementario_id,
         )
+
         self.session.add(comp)
         self.session.commit()
         self.session.refresh(comp)
+
         return self._complementario_to_info(comp)
 
     async def update_complementario(
@@ -257,46 +383,75 @@ class EnrollmentAdapter(EnrollmentDataService):
         estado_complemento: str | None,
         tipo_complementario_id: int | None,
     ) -> ComplementarioInfo:
-        comp = self.session.get(Complementario, complementario_id)
+        comp = self.session.get(
+            Complementario,
+            complementario_id,
+        )
+
         if not comp:
-            raise ValueError("Complementario no encontrado.")
+            raise ValueError(
+                "Complementario no encontrado."
+            )
 
         if nombre is not None:
             comp.nombre = nombre
+
         if anio is not None:
             comp.anio = anio
+
         if valor is not None:
             comp.valor = valor
+
         if estado_complemento is not None:
             comp.estado_complemento = estado_complemento
+
         if tipo_complementario_id is not None:
             comp.tipo_complementario_id = tipo_complementario_id
 
         self.session.add(comp)
         self.session.commit()
         self.session.refresh(comp)
+
         return self._complementario_to_info(comp)
 
-    async def delete_complementario(self, complementario_id: int) -> None:
-        comp = self.session.get(Complementario, complementario_id)
+    async def delete_complementario(
+        self,
+        complementario_id: int,
+    ) -> None:
+        comp = self.session.get(
+            Complementario,
+            complementario_id,
+        )
+
         if not comp:
-            raise ValueError("Complementario no encontrado.")
+            raise ValueError(
+                "Complementario no encontrado."
+            )
+
         comp.estado_complemento = "Inactivo"
+
         self.session.add(comp)
         self.session.commit()
 
-    async def complementario_has_references(self, complementario_id: int) -> bool:
+    async def complementario_has_references(
+        self,
+        complementario_id: int,
+    ) -> bool:
         en_matricula = self.session.exec(
             select(DetalleMatricula).where(
-                DetalleMatricula.complementario_id == complementario_id
+                DetalleMatricula.complementario_id
+                == complementario_id
             )
         ).first()
+
         if en_matricula:
             return True
 
         en_escuela = self.session.exec(
             select(DetalleEscuelaFormacion).where(
-                DetalleEscuelaFormacion.complementario_id == complementario_id
+                DetalleEscuelaFormacion.complementario_id
+                == complementario_id
             )
         ).first()
+
         return en_escuela is not None
