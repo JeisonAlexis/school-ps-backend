@@ -109,35 +109,48 @@ class PeaceSafeService:
 
     def _check_pupitre(self, estudiante_id: int) -> ModuloStatus:
         pupitre = self.repo.get_pupitre_by_student(estudiante_id)
-        if pupitre and not pupitre.estado:
+
+        if not pupitre:
+            return ModuloStatus(
+                clave="pupitre",
+                nombre="Pupitre",
+                estado="error",
+                detalle="No tiene pupitre pagado",
+            )
+
+        if pupitre.estado != "pagado":
             obs = pupitre.observacion or "Sin detalles"
             return ModuloStatus(
                 clave="pupitre",
                 nombre="Pupitre",
                 estado="error",
-                detalle=f"Pupitre no devuelto: {obs}",
+                detalle=f"Pupitre pendiente de pago: {obs}",
             )
 
         return ModuloStatus(
-            clave="pupitre", nombre="Pupitre", estado="ok", detalle="Pupitre en orden"
+            clave="pupitre",
+            nombre="Pupitre",
+            estado="ok",
+            detalle="Pupitre pagado",
         )
 
     def _check_observador(self, estudiante_id: int) -> ModuloStatus:
         rows = self.repo.get_observaciones(estudiante_id)
+
         if rows:
             tipos = list(set(r.tipo_incidencia for r in rows))
             return ModuloStatus(
                 clave="observador",
                 nombre="Observaciones del salón",
                 estado="error",
-                detalle=f"Incidencias registradas: {', '.join(tipos)} ({len(rows)})",
+                detalle=f"Incidencias pendientes: {', '.join(tipos)} ({len(rows)})",
             )
 
         return ModuloStatus(
             clave="observador",
             nombre="Observaciones del salón",
             estado="ok",
-            detalle="Sin incidencias registradas",
+            detalle="Sin incidencias pendientes",
         )
 
     def _check_loans(

@@ -34,53 +34,103 @@ class PupitreService:
             observacion=data.observacion,
         )
 
-    # Se confirma el pago de UN pupitre (no recibe valor, solo confirma)
     async def update_payment_status(
-        self, estudiante_id: int, observacion: str | None
+        self,
+        estudiante_id: int,
+        observacion: str | None,
     ) -> DetallePupitreEntity | None:
-
         complementario = await self.get_complementario_pupitre()
+
         if not complementario:
             return None
 
         pupitre = await self.repositorio.get_student_desk(
-            estudiante_id, complementario.id
+            estudiante_id,
+            complementario.id,
         )
-        if not pupitre:
-            return None
 
+        # Si el estudiante todavía no tiene pupitre,
+        # el primer pago lo crea directamente como PAGADO.
+        if not pupitre:
+            pupitre_nuevo = await self.repositorio.create_desk(
+                estudiante_id=estudiante_id,
+                complementario_id=complementario.id,
+                estado=ESTADO_PAGADO,
+                observacion=observacion,
+            )
+
+            return self._map_to_entity(pupitre_nuevo)
+
+        # Si ya existe, alterna el estado.
         pupitre.estado = (
-            ESTADO_PENDIENTE if pupitre.estado == ESTADO_PAGADO else ESTADO_PAGADO
+            ESTADO_PENDIENTE
+            if pupitre.estado == ESTADO_PAGADO
+            else ESTADO_PAGADO
         )
+
         pupitre.observacion = observacion
 
         pupitre_actualizado = await self.repositorio.update_desk(pupitre)
+
         return self._map_to_entity(pupitre_actualizado)
 
     # Confirma el pago de varios pupitres de un mismo grado, retorna cantidad actualizados
     async def bulk_update_desk_states(
-        self, grado_id: int, ids_estudiantes: list[int]
+        self,
+        grado_id: int,
+        ids_estudiantes: list[int],
     ) -> dict | None:
 
-        pupitres = await self.repositorio.list_desks_by_grado_id(grado_id)
+        complementario = await self.get_complementario_pupitre()
 
-        if not pupitres:
-            return None
+        if not complementario:
+         return None
 
-        encontrados_ids = {p.estudiante_id for p in pupitres}
+        # Obtener todos los pupitres que ya existen para el grado
+        pupitres_existentes = await self.repositorio.list_desks_by_grado_id(
+            grado_id
+        )
 
-        ids_validos = [i for i in ids_estudiantes if i in encontrados_ids]
-        ids_no_encontrados = [i for i in ids_estudiantes if i not in encontrados_ids]
+        pupitres_por_estudiante = {
+            pupitre.estudiante_id: pupitre
+            for pupitre in pupitres_existentes
+        }
 
-        pupitres_a_actualizar = [p for p in pupitres if p.estudiante_id in ids_validos]
+        total_actualizados = 0
+        ids_no_encontrados = []
 
-        for pupitre in pupitres_a_actualizar:
-            pupitre.estado = ESTADO_PAGADO
+        for estudiante_id in ids_estudiantes:
 
-        total = await self.repositorio.bulk_update_desk_states(pupitres_a_actualizar)
+            # Verificar que el estudiante pertenezca al grado
+            estudiante = self.enrollment_service.get_student_by_id(
+                estudiante_id
+            )
+
+            if not estudiante or estudiante.grado_id != grado_id:
+                ids_no_encontrados.append(estudiante_id)
+                continue
+
+            pupitre = pupitres_por_estudiante.get(estudiante_id)
+
+            if pupitre:
+                # Ya existe → confirmar pago
+                pupitre.estado = ESTADO_PAGADO
+
+                await self.repositorio.update_desk(pupitre)
+
+            else:
+                # No existe → crear asignación y confirmar pago
+                pupitre = await self.repositorio.create_desk(
+                    estudiante_id=estudiante_id,
+                    complementario_id=complementario.id,
+                    estado=ESTADO_PAGADO,
+                    observacion=None,
+                )
+
+            total_actualizados += 1
 
         return {
-            "total_actualizados": total,
+            "total_actualizados": total_actualizados,
             "ids_no_encontrados": ids_no_encontrados,
         }
 

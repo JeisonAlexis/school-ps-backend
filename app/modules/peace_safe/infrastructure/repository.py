@@ -112,12 +112,12 @@ class PeaceSafeRepository(PeaceSafeRepositoryInterface):
             select(DetallePupitre).where(DetallePupitre.estudiante_id == estudiante_id)
         ).first()
 
-    def get_observaciones(self, estudiante_id: int) -> list[Observador]:
-        return list(
-            self.session.exec(
-                select(Observador).where(Observador.estudiante_id == estudiante_id)
-            ).all()
+    def get_observaciones(self, estudiante_id: int):
+        statement = select(Observador).where(
+            Observador.estudiante_id == estudiante_id,
+            Observador.esta_abierta == True,
         )
+        return self.session.exec(statement).all()
 
     def get_loans_by_type(
         self, estudiante_id: int, tipo_nombre: str
