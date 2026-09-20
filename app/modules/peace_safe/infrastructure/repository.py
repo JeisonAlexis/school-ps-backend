@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlmodel import col, select
+from sqlmodel import col, func, select
 
 from app.core.db import SessionDep
 from app.modules.cafeteria.infrastructure.models import Cafeteria
@@ -31,6 +31,7 @@ from app.modules.principal.infrastructure.models import RectoriaEstado
 from app.modules.tests.infrastructure.models import DetallePrueba
 from app.modules.training_schools.infrastructure.models import DetalleEscuelaFormacion
 from app.modules.tuition.infrastructure.models import Pension
+from app.modules.tuition.infrastructure.models import DetallePension, Pension
 
 
 class PeaceSafeRepository(PeaceSafeRepositoryInterface):
@@ -98,6 +99,66 @@ class PeaceSafeRepository(PeaceSafeRepositoryInterface):
         return self.session.exec(
             select(Pension).where(Pension.estudiante_id == estudiante_id)
         ).first()
+        
+    def get_pensiones(self, estudiante_id: int) -> list[Pension]:
+        return list(
+            self.session.exec(
+                select(Pension).where(Pension.estudiante_id == estudiante_id)
+            ).all()
+        )
+
+    def get_pending_pension_months(self, estudiante_id: int) -> list[dict]:
+        meses_del_ano = 12
+
+        pensiones = list(
+            self.session.exec(
+                select(Pension).where(Pension.estudiante_id == estudiante_id)
+            ).all()
+        )
+        if not pensiones:
+            return []
+
+        pendientes: list[dict] = []
+        for pension in pensiones:
+            stmt = (
+                select(
+                    DetallePension.mes,
+                    func.max(DetallePension.valor_total).label("total"),
+                    func.sum(DetallePension.valor_pagado).label("pagado"),
+                )
+                .where(DetallePension.pension_id == pension.id)
+                .group_by(DetallePension.mes)
+            )
+            pagos_por_mes = {
+                mes: (total or 0, pagado or 0)
+                for mes, total, pagado in self.session.exec(stmt).all()
+            }
+
+            for mes in range(1, meses_del_ano + 1):
+                if mes in pagos_por_mes:
+                    total, pagado = pagos_por_mes[mes]
+                    if pagado < total:
+                        pendientes.append(
+                            {
+                                "pension_id": pension.id,
+                                "mes": mes,
+                                "total": total,
+                                "pagado": pagado,
+                                "saldo": total - pagado,
+                            }
+                        )
+                else:
+                    pendientes.append(
+                        {
+                            "pension_id": pension.id,
+                            "mes": mes,
+                            "total": pension.valor_total,
+                            "pagado": 0,
+                            "saldo": pension.valor_total,
+                        }
+                    )
+
+        return pendientes
 
     def get_cafeteria(self, estudiante_id: int, periodo_id: int) -> Cafeteria | None:
         return self.session.exec(

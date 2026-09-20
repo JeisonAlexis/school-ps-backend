@@ -47,6 +47,9 @@ class PeaceSafeRepository(ABC):
 
     @abstractmethod
     def get_pension(self, estudiante_id: int) -> Pension | None: ...
+    
+    @abstractmethod
+    def get_pending_pension_months(self, estudiante_id: int) -> list[dict]: ...
 
     @abstractmethod
     def get_cafeteria(

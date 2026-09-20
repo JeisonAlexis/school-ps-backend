@@ -69,25 +69,22 @@ class PeaceSafeService:
         )
 
     def _check_pension(self, estudiante_id: int) -> ModuloStatus:
-        pension = self.repo.get_pension(estudiante_id)
-        if not pension:
-            return ModuloStatus(
-                clave="tuition",
-                nombre="Pensión",
-                estado="ok",
-                detalle="Sin pensión registrada",
+        pendientes = self.repo.get_pending_pension_months(estudiante_id)
+        if pendientes:
+            detalle = " | ".join(
+                f"Mes {p['mes']}: saldo ${p['saldo']:,}" for p in pendientes
             )
-
-        if not pension.estado_pension:
             return ModuloStatus(
                 clave="tuition",
                 nombre="Pensión",
                 estado="error",
-                detalle="Pensión con estado pendiente",
+                detalle=f"Pensión pendiente — {detalle}",
             )
-
         return ModuloStatus(
-            clave="tuition", nombre="Pensión", estado="ok", detalle="Pensión al día"
+            clave="tuition",
+            nombre="Pensión",
+            estado="ok",
+            detalle="Pensión al día",
         )
 
     def _check_cafeteria(self, estudiante_id: int, periodo_id: int) -> ModuloStatus:
